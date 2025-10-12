@@ -12,32 +12,34 @@
   </style>
 </head>
 <body>
-  <button id="startBtn">Start Scanner</button>
+  <button onclick="startScanner()">Start Scanner !</button>
   <div id="reader"></div>
 
   <script>
-    const qrRegionId = "reader";
-    const html5Qr = new Html5Qrcode(qrRegionId);
+    let html5QrCode;
 
-    function onScanSuccess(decodedText, decodedResult) {
-      alert("Scan result: " + decodedText);
-      html5Qr.stop().then(() => Html5Qrcode.cleanup());
-    }
-
-    document.getElementById("startBtn").addEventListener("click", async () => {
+    async function startScanner() {
+      html5QrCode = new Html5Qrcode("reader");
       try {
-        await html5Qr.start(
-          { facingMode: { exact: "environment" } }, // rear camera when available
-          { fps: 10, qrbox: 250 },
+        // start the rear camera (environment)
+        await html5QrCode.start(
+          { facingMode: { exact: "environment" } },
+          {
+            fps: 10,
+            qrbox: 250
+          },
           onScanSuccess
         );
-        // Hide the start button after camera starts
-        document.getElementById("startBtn").style.display = "none";
-      } catch (e) {
-        console.error(e);
-        alert("Could not start camera: " + e);
+      } catch (err) {
+        console.error("Error starting scanner:", err);
+        alert("Unable to start camera: " + err);
       }
-    });
+    }
+
+    function onScanSuccess(decodedText, decodedResult) {
+      alert(`Scan result: ${decodedResult}`);
+      // html5QrCode.stop().then(() => html5QrCode.clear());
+    }
   </script>
 </body>
 </html>
