@@ -1,45 +1,196 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>QR Scanner (Camera only)</title>
-  <script src="https://unpkg.com/html5-qrcode"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OCR with Tesseract.js — Simple Demo</title>
   <style>
-    body { font-family: system-ui, sans-serif; }
-    #startBtn { padding: .7rem 1rem; border-radius: .5rem; border: 1px solid #ccc; }
-    #reader { width: 500px; max-width: 100%; margin-top: 1rem; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:18px;color:#111}
+    .card{border:1px solid #e6e6e6;border-radius:8px;padding:16px;max-width:900px}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    #preview{max-width:320px;max-height:320px;border:1px dashed #ccc;padding:8px}
+    button{padding:8px 12px;border-radius:6px;border:1px solid #ccc;background:#fafafa;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    progress{width:100%;height:18px}
+    textarea{width:100%;height:220px;padding:8px;border-radius:6px;border:1px solid #ddd}
+    label{font-weight:600}
+    .controls{display:flex;gap:8px;align-items:center}
+    .small{font-size:13px;color:#555}
   </style>
 </head>
 <body>
-  <button onclick="startScanner()">Start Scanner !</button>
-  <div id="reader"></div>
+  <h1>OCR (client-side) using <em>Tesseract.js</em></h1>
+  <div class="card">
+    <div class="row">
+      <div style="flex:1 1 320px;min-width:280px">
+        <label for="file">Choose an image</label><br>
+        <input id="file" type="file" accept="image/*" />
+        <div style="margin-top:8px">
+          <label class="small">Or paste an image URL:</label>
+          <input id="url" type="text" placeholder="https://example.com/photo.jpg" style="width:100%;padding:6px;margin-top:6px;border-radius:6px;border:1px solid #ddd" />
+        </div>
+        <div style="margin-top:10px" class="controls">
+          <button id="btnLoadFromUrl">Load URL</button>
+          <select id="lang" aria-label="language">
+            <option value="eng">English (eng)</option>
+            <!-- add more languages if needed (tessdata will be downloaded automatically) -->
+          </select>
+        </div>
 
+        <div style="margin-top:12px">
+          <label class="small">Preview</label>
+          <div>
+            <img id="preview" alt="preview" src="" />
+          </div>
+        </div>
+
+        <div style="margin-top:12px" class="controls">
+          <button id="start">Recognize</button>
+          <button id="cancel" disabled>Cancel</button>
+          <button id="downloadTxt" disabled>Download text</button>
+        </div>
+
+        <div style="margin-top:12px">
+          <label class="small">Progress</label>
+          <progress id="progress" value="0" max="1"></progress>
+          <div id="progressText" class="small">Idle</div>
+        </div>
+      </div>
+
+      <div style="flex:1 1 420px;min-width:320px">
+        <label for="result">Recognized text</label>
+        <textarea id="result" placeholder="OCR output will appear here..." readonly></textarea>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
   <script>
-    let html5QrCode;
+    // Simple client-side OCR demo using Tesseract.js (worker API)
+    const { createWorker } = Tesseract;
+    const fileInput = document.getElementById('file');
+    const preview = document.getElementById('preview');
+    const startBtn = document.getElementById('start');
+    const cancelBtn = document.getElementById('cancel');
+    const progressEl = document.getElementById('progress');
+    const progressText = document.getElementById('progressText');
+    const resultEl = document.getElementById('result');
+    const downloadBtn = document.getElementById('downloadTxt');
+    const urlInput = document.getElementById('url');
+    const btnLoadFromUrl = document.getElementById('btnLoadFromUrl');
+    const langSelect = document.getElementById('lang');
 
-    async function startScanner() {
-      html5QrCode = new Html5Qrcode("reader");
+    let worker = null;
+    let cancelRequested = false;
+    let currentImageDataURL = '';
+
+    // show image preview when file chosen
+    fileInput.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        preview.src = reader.result;
+        currentImageDataURL = reader.result;
+      };
+      reader.readAsDataURL(f);
+    });
+
+    btnLoadFromUrl.addEventListener('click', () => {
+      const url = urlInput.value.trim();
+      if (!url) return alert('Paste an image URL first');
+      // simple load (note: some servers block cross-origin image loading; for best results host images with CORS enabled)
+      preview.src = url;
+      currentImageDataURL = url;
+    });
+
+    async function createTesseractWorker(onProgress) {
+      const w = createWorker({
+        logger: onProgress
+      });
+      await w.load();
+      const lang = langSelect.value || 'eng';
+      await w.loadLanguage(lang);
+      await w.initialize(lang);
+      return w;
+    }
+
+    startBtn.addEventListener('click', async () => {
+      if (!preview.src) return alert('Please provide an image file or URL first.');
+      startBtn.disabled = true;
+      cancelBtn.disabled = false;
+      downloadBtn.disabled = true;
+      resultEl.value = '';
+      progressEl.value = 0;
+      progressText.textContent = 'Starting worker...';
+      cancelRequested = false;
+
       try {
-        // start the rear camera (environment)
-        await html5QrCode.start(
-          { facingMode: { exact: "environment" } },
-          {
-            fps: 10,
-            qrbox: 250
-          },
-          onScanSuccess
-        );
-      } catch (err) {
-        console.error("Error starting scanner:", err);
-        alert("Unable to start camera: " + err);
-      }
-    }
+        worker = await createTesseractWorker(m => {
+          // m has { status, progress } in many calls
+          if (m && typeof m.progress === 'number') {
+            progressEl.value = m.progress;
+          }
+          progressText.textContent = (m && m.status) ? `${m.status} ${(m.progress || 0)*100|0}%` : JSON.stringify(m);
+        });
 
-    function onScanSuccess(decodedText, decodedResult) {
-      alert(`Scan result: ${decodedResult}`);
-      // html5QrCode.stop().then(() => html5QrCode.clear());
-    }
+        // recognize
+        const source = preview.src;
+        // if the image is a remote URL and the server blocks CORS, Tesseract may fail in the browser.
+        const { data: { text } } = await worker.recognize(source);
+
+        if (cancelRequested) {
+          progressText.textContent = 'Canceled';
+        } else {
+          resultEl.value = text;
+          progressText.textContent = 'Done';
+          downloadBtn.disabled = false;
+        }
+      } catch (err) {
+        console.error(err);
+        progressText.textContent = 'Error: ' + (err.message || err);
+        alert('OCR failed. Check console for details. Note: remote images may be blocked by CORS.');
+      } finally {
+        try { if (worker) await worker.terminate(); } catch(e){}
+        worker = null;
+        startBtn.disabled = false;
+        cancelBtn.disabled = true;
+      }
+    });
+
+    cancelBtn.addEventListener('click', async () => {
+      cancelRequested = true;
+      progressText.textContent = 'Cancel requested';
+      if (worker) {
+        try { await worker.terminate(); } catch(e){}
+        worker = null;
+      }
+      startBtn.disabled = false;
+      cancelBtn.disabled = true;
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      const text = resultEl.value;
+      if (!text) return;
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ocr-result.txt';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    // helpful notes for the user in the UI: (not required for the tool, but kept as comments)
+    /*
+      Notes & Tips:
+      - This demo runs 100% in the browser using Tesseract.js. The library will download the language data it needs.
+      - For large images, you may want to scale them down before sending to Tesseract for faster recognition.
+      - Remote images may be blocked by CORS; if so, download the image and upload it instead.
+      - For production or heavy usage consider server-side OCR or cloud OCR APIs (Google Vision, AWS Textract, Azure OCR), or run Tesseract on the server.
+    */
   </script>
 </body>
 </html>
