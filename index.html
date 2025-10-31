@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Camera OCR</title>
+    <title>Number OCR</title>
     <script src='https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js'></script>
     <style>
         * {
@@ -85,18 +85,18 @@
             cursor: not-allowed;
         }
 
-        textarea {
+        input {
             width: 100%;
-            min-height: 100px;
-            padding: 12px;
+            padding: 15px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 20px;
             font-family: monospace;
-            resize: vertical;
+            text-align: center;
+            font-weight: bold;
         }
 
-        textarea:focus {
+        input:focus {
             outline: none;
             border-color: #667eea;
         }
@@ -118,7 +118,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>📸 Fast OCR</h1>
+        <h1>🔢 Number Scanner</h1>
         
         <div id="status" class="status info">Click Start Camera</div>
         
@@ -129,10 +129,10 @@
         
         <div class="controls">
             <button id="startBtn">Start Camera</button>
-            <button id="captureBtn" disabled>Capture</button>
+            <button id="captureBtn" disabled>Capture Numbers</button>
         </div>
         
-        <textarea id="result" placeholder="Extracted text..."></textarea>
+        <input type="text" id="result" placeholder="Numbers will appear here..." readonly>
     </div>
 
     <script>
@@ -147,7 +147,6 @@
         let stream = null;
         let worker = null;
 
-        // Pre-initialize Tesseract worker for faster processing
         async function initWorker() {
             worker = await Tesseract.createWorker({
                 langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast',
@@ -157,10 +156,10 @@
             await worker.loadLanguage('eng');
             await worker.initialize('eng');
             
-            // Optimize for numbers and English text
+            // ONLY recognize numbers 0-9
             await worker.setParameters({
-                tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,',
-                tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK
+                tessedit_char_whitelist: '0123456789',
+                tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
             });
         }
 
@@ -171,13 +170,13 @@
 
         async function startCamera() {
             try {
-                updateStatus('Starting camera...', 'info');
+                updateStatus('Starting...', 'info');
                 
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { 
                         facingMode: 'environment',
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
                     }
                 });
                 
@@ -185,40 +184,52 @@
                 startBtn.disabled = true;
                 captureBtn.disabled = false;
                 
-                // Initialize worker in background
                 if (!worker) {
                     initWorker().then(() => {
-                        updateStatus('Camera ready!', 'success');
+                        updateStatus('Ready!', 'success');
                     });
                 } else {
-                    updateStatus('Camera ready!', 'success');
+                    updateStatus('Ready!', 'success');
                 }
             } catch (err) {
-                updateStatus('Camera access failed', 'error');
+                updateStatus('Camera failed', 'error');
             }
         }
 
         async function captureAndOCR() {
             captureBtn.disabled = true;
-            updateStatus('Processing...', 'processing');
+            updateStatus('Reading...', 'processing');
             
-            // Resize canvas to reduce processing time
-            canvas.width = Math.min(video.videoWidth, 1280);
-            canvas.height = Math.min(video.videoHeight, 720);
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Small resolution for speed
+            canvas.width = 640;
+            canvas.height = 480;
+            ctx.drawImage(video, 0, 0, 640, 480);
             
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            // Convert to grayscale and increase contrast for better OCR
+            const imageData = ctx.getImageData(0, 0, 640, 480);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                // High contrast
+                const contrast = gray > 128 ? 255 : 0;
+                data[i] = data[i + 1] = data[i + 2] = contrast;
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+            const processedImage = canvas.toDataURL('image/jpeg', 0.7);
             
             try {
                 if (!worker) await initWorker();
                 
-                const { data: { text } } = await worker.recognize(imageData);
+                const { data: { text } } = await worker.recognize(processedImage);
                 
-                const extracted = text.trim();
-                result.value = extracted || 'No text found';
-                updateStatus(extracted ? 'Done!' : 'No text found', 'success');
+                // Extract only numbers
+                const numbers = text.replace(/\D/g, '');
+                result.value = numbers || 'No numbers found';
+                updateStatus(numbers ? 'Done!' : 'No numbers', 'success');
             } catch (err) {
-                updateStatus('Processing failed', 'error');
+                updateStatus('Failed', 'error');
             }
             
             captureBtn.disabled = false;
