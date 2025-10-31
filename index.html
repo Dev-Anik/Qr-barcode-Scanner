@@ -164,7 +164,7 @@
             
             await worker.setParameters({
                 tessedit_char_whitelist: '0123456789',
-                tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT
+                tessedit_pageseg_mode: Tesseract.PSM.AUTO
             });
         }
 
@@ -180,11 +180,11 @@
             
             for (let i = 0; i < data.length; i += 4) {
                 const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                if (brightness < 200) darkPixels++;
+                if (brightness < 230) darkPixels++;
             }
             
             const darkPercentage = (darkPixels / totalPixels) * 100;
-            return darkPercentage > 5;
+            return darkPercentage > 2;
         }
 
         async function startCamera() {
