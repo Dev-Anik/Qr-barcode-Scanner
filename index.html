@@ -3,282 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Number OCR</title>
-    <script src='https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js'></script>
+    <title>OCR</title>
+    <script src="https://unpkg.com/tesseract.js@v3.0.3/dist/tesseract.min.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+         #video {
+        width: 100%;
+        height: auto;
         }
-
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 30px;
-            max-width: 600px;
-            width: 100%;
-        }
-
-        h1 {
-            text-align: center;
-            color: #667eea;
-            margin-bottom: 20px;
-            font-size: 24px;
-        }
-
-        .camera-container {
-            position: relative;
-            width: 100%;
-            background: #000;
-            border-radius: 15px;
-            overflow: hidden;
-            margin-bottom: 15px;
-        }
-
-        #video {
-            width: 100%;
-            display: block;
-        }
-
-        #canvas {
-            display: none;
-        }
-
-        .controls {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        button {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        button:hover:not(:disabled) {
-            background: #5568d3;
-            transform: translateY(-1px);
-        }
-
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-
-        input {
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 20px;
-            font-family: monospace;
-            text-align: center;
-            font-weight: bold;
-        }
-
-        input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .status {
-            text-align: center;
-            padding: 8px;
-            border-radius: 6px;
-            margin-bottom: 10px;
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .info { background: #e3f2fd; color: #1976d2; }
-        .success { background: #e8f5e9; color: #388e3c; }
-        .error { background: #ffebee; color: #d32f2f; }
-        .processing { background: #fff3e0; color: #f57c00; }
     </style>
+
 </head>
 <body>
-    <div class="container">
-        <h1>🔢 Number Scanner</h1>
-        
-        <div id="status" class="status info">Click Start Camera</div>
-        
-        <div class="camera-container">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="canvas"></canvas>
-        </div>
-        
-        <div class="controls">
-            <button id="startBtn">Start Camera</button>
-            <button id="captureBtn" disabled>Capture Numbers</button>
-        </div>
-        
-        <input type="text" id="result" placeholder="Numbers will appear here..." readonly>
-    </div>
+     <video id="video"></video>
+    <p id="progress"></p>
+    <p id="result"></p>
 
-    <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const startBtn = document.getElementById('startBtn');
-        const captureBtn = document.getElementById('captureBtn');
-        const result = document.getElementById('result');
-        const status = document.getElementById('status');
-        
-        let stream = null;
-        let worker = null;
-        let isProcessing = false;
-
-        async function initWorker() {
-            if (worker) {
-                await worker.terminate();
-            }
-            
-            worker = await Tesseract.createWorker({
-                langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast',
-                logger: () => {},
-                cacheMethod: 'none'
-            });
-            
-            await worker.loadLanguage('eng');
-            await worker.initialize('eng');
-            
-            await worker.setParameters({
-                tessedit_char_whitelist: '0123456789',
-                tessedit_pageseg_mode: Tesseract.PSM.AUTO
-            });
-        }
-
-        function updateStatus(msg, type = 'info') {
-            status.textContent = msg;
-            status.className = `status ${type}`;
-        }
-
-        function hasContent(imageData) {
-            const data = imageData.data;
-            let darkPixels = 0;
-            const totalPixels = data.length / 4;
-            
-            for (let i = 0; i < data.length; i += 4) {
-                const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                if (brightness < 230) darkPixels++;
-            }
-            
-            const darkPercentage = (darkPixels / totalPixels) * 100;
-            return darkPercentage > 2;
-        }
-
-        async function startCamera() {
-            try {
-                updateStatus('Starting...', 'info');
-                
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: 'environment',
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
-                    }
-                });
-                
-                video.srcObject = stream;
-                startBtn.disabled = true;
-                captureBtn.disabled = false;
-                
-                updateStatus('Initializing OCR...', 'info');
-                await initWorker();
-                updateStatus('Ready!', 'success');
-            } catch (err) {
-                updateStatus('Camera failed', 'error');
-            }
-        }
-
-        async function captureAndOCR() {
-            if (isProcessing) return;
-            
-            isProcessing = true;
-            captureBtn.disabled = true;
-            captureBtn.textContent = 'Processing...';
-            updateStatus('Reading...', 'processing');
-            
-            canvas.width = 640;
-            canvas.height = 480;
-            ctx.drawImage(video, 0, 0, 640, 480);
-            
-            const imageData = ctx.getImageData(0, 0, 640, 480);
-            
-            if (!hasContent(imageData)) {
-                result.value = '';
-                updateStatus('No content detected', 'info');
-                captureBtn.disabled = false;
-                captureBtn.textContent = 'Capture Numbers';
-                isProcessing = false;
-                return;
-            }
-            
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-                const contrast = gray > 128 ? 255 : 0;
-                data[i] = data[i + 1] = data[i + 2] = contrast;
-            }
-            
-            ctx.putImageData(imageData, 0, 0);
-            const processedImage = canvas.toDataURL('image/jpeg', 0.7);
-            
-            try {
-                const startTime = Date.now();
-                const { data: { text } } = await worker.recognize(processedImage);
-                const endTime = Date.now();
-                console.log(`OCR took ${endTime - startTime}ms`);
-                
-                const numbers = text.replace(/\D/g, '').trim();
-                
-                if (numbers.length > 0) {
-                    result.value = numbers;
-                    updateStatus(`Found: ${numbers}`, 'success');
-                } else {
-                    result.value = '';
-                    updateStatus('No numbers found', 'info');
-                }
-            } catch (err) {
-                console.error('OCR Error:', err);
-                updateStatus('Processing failed', 'error');
-                
-                // Reinitialize worker on error
-                await initWorker();
-            }
-            
-            captureBtn.disabled = false;
-            captureBtn.textContent = 'Capture Numbers';
-            isProcessing = false;
-        }
-
-        startBtn.addEventListener('click', startCamera);
-        captureBtn.addEventListener('click', captureAndOCR);
-
-        window.addEventListener('beforeunload', () => {
-            if (stream) stream.getTracks().forEach(t => t.stop());
-            if (worker) worker.terminate();
-        });
-    </script>
+    <!-- OCR script -->
+     <script>
+        var videoElem=document.getElementById('video');
+        navigator.mediaDevices.getUserMedia({
+            video:{
+                facingMode:"environment"
+            },
+            audio:false
+        })
+        .then(function(stream){
+            videoElem.srcOnject=stream;
+            videoElem.play();
+        })
+     </script>
 </body>
 </html>
