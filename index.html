@@ -146,26 +146,45 @@
         
         let stream = null;
         let worker = null;
+        let isProcessing = false;
 
         async function initWorker() {
+            if (worker) {
+                await worker.terminate();
+            }
+            
             worker = await Tesseract.createWorker({
                 langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast',
-                logger: () => {}
+                logger: () => {},
+                cacheMethod: 'none'
             });
             
             await worker.loadLanguage('eng');
             await worker.initialize('eng');
             
-            // ONLY recognize numbers 0-9
             await worker.setParameters({
                 tessedit_char_whitelist: '0123456789',
-                tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
+                tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT
             });
         }
 
         function updateStatus(msg, type = 'info') {
             status.textContent = msg;
             status.className = `status ${type}`;
+        }
+
+        function hasContent(imageData) {
+            const data = imageData.data;
+            let darkPixels = 0;
+            const totalPixels = data.length / 4;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                if (brightness < 200) darkPixels++;
+            }
+            
+            const darkPercentage = (darkPixels / totalPixels) * 100;
+            return darkPercentage > 5;
         }
 
         async function startCamera() {
@@ -184,34 +203,40 @@
                 startBtn.disabled = true;
                 captureBtn.disabled = false;
                 
-                if (!worker) {
-                    initWorker().then(() => {
-                        updateStatus('Ready!', 'success');
-                    });
-                } else {
-                    updateStatus('Ready!', 'success');
-                }
+                updateStatus('Initializing OCR...', 'info');
+                await initWorker();
+                updateStatus('Ready!', 'success');
             } catch (err) {
                 updateStatus('Camera failed', 'error');
             }
         }
 
         async function captureAndOCR() {
+            if (isProcessing) return;
+            
+            isProcessing = true;
             captureBtn.disabled = true;
+            captureBtn.textContent = 'Processing...';
             updateStatus('Reading...', 'processing');
             
-            // Small resolution for speed
             canvas.width = 640;
             canvas.height = 480;
             ctx.drawImage(video, 0, 0, 640, 480);
             
-            // Convert to grayscale and increase contrast for better OCR
             const imageData = ctx.getImageData(0, 0, 640, 480);
-            const data = imageData.data;
             
+            if (!hasContent(imageData)) {
+                result.value = '';
+                updateStatus('No content detected', 'info');
+                captureBtn.disabled = false;
+                captureBtn.textContent = 'Capture Numbers';
+                isProcessing = false;
+                return;
+            }
+            
+            const data = imageData.data;
             for (let i = 0; i < data.length; i += 4) {
                 const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-                // High contrast
                 const contrast = gray > 128 ? 255 : 0;
                 data[i] = data[i + 1] = data[i + 2] = contrast;
             }
@@ -220,19 +245,31 @@
             const processedImage = canvas.toDataURL('image/jpeg', 0.7);
             
             try {
-                if (!worker) await initWorker();
-                
+                const startTime = Date.now();
                 const { data: { text } } = await worker.recognize(processedImage);
+                const endTime = Date.now();
+                console.log(`OCR took ${endTime - startTime}ms`);
                 
-                // Extract only numbers
-                const numbers = text.replace(/\D/g, '');
-                result.value = numbers || 'No numbers found';
-                updateStatus(numbers ? 'Done!' : 'No numbers', 'success');
+                const numbers = text.replace(/\D/g, '').trim();
+                
+                if (numbers.length > 0) {
+                    result.value = numbers;
+                    updateStatus(`Found: ${numbers}`, 'success');
+                } else {
+                    result.value = '';
+                    updateStatus('No numbers found', 'info');
+                }
             } catch (err) {
-                updateStatus('Failed', 'error');
+                console.error('OCR Error:', err);
+                updateStatus('Processing failed', 'error');
+                
+                // Reinitialize worker on error
+                await initWorker();
             }
             
             captureBtn.disabled = false;
+            captureBtn.textContent = 'Capture Numbers';
+            isProcessing = false;
         }
 
         startBtn.addEventListener('click', startCamera);
