@@ -1,224 +1,236 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>OCR from Camera — Tesseract.js</title>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:18px;color:#111}
-    .card{border:1px solid #e6e6e6;border-radius:8px;padding:16px;max-width:980px}
-    .row{display:flex;gap:12px;flex-wrap:wrap}
-    video, canvas, img{max-width:100%;border-radius:6px}
-    #videoWrap{width:100%;max-width:420px;border:1px dashed #ddd;padding:8px}
-    .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
-    button{padding:8px 12px;border-radius:6px;border:1px solid #ccc;background:#fafafa;cursor:pointer}
-    button:disabled{opacity:.5;cursor:not-allowed}
-    progress{width:100%;height:18px}
-    textarea{width:100%;height:220px;padding:8px;border-radius:6px;border:1px solid #ddd}
-    label{font-weight:600}
-    .small{font-size:13px;color:#555}
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera OCR</title>
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js'></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .camera-container {
+            position: relative;
+            width: 100%;
+            background: #000;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        #video {
+            width: 100%;
+            display: block;
+        }
+
+        #canvas {
+            display: none;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: monospace;
+            resize: vertical;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .status {
+            text-align: center;
+            padding: 8px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .info { background: #e3f2fd; color: #1976d2; }
+        .success { background: #e8f5e9; color: #388e3c; }
+        .error { background: #ffebee; color: #d32f2f; }
+        .processing { background: #fff3e0; color: #f57c00; }
+    </style>
 </head>
 <body>
-  <h1>OCR from Phone Camera (client-side)</h1>
-  <div class="card">
-    <div class="row">
-      <div style="flex:1 1 360px;min-width:320px">
-        <label class="small">Live camera</label>
-        <div id="videoWrap">
-          <video id="video" playsinline autoplay></video>
+    <div class="container">
+        <h1>📸 Fast OCR</h1>
+        
+        <div id="status" class="status info">Click Start Camera</div>
+        
+        <div class="camera-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
         </div>
-
+        
         <div class="controls">
-          <button id="startCam">Start camera</button>
-          <button id="switchCam" disabled>Switch camera</button>
-          <button id="snap" disabled>Capture photo</button>
-          <button id="fileBtn">Upload image</button>
-          <input id="file" type="file" accept="image/*" style="display:none" />
+            <button id="startBtn">Start Camera</button>
+            <button id="captureBtn" disabled>Capture</button>
         </div>
-
-        <div style="margin-top:12px">
-          <label class="small">Preview / Captured image</label>
-          <div style="margin-top:8px">
-            <img id="preview" alt="preview" src="" style="max-width:320px;max-height:420px;border:1px solid #eee;padding:6px;border-radius:6px" />
-          </div>
-        </div>
-
-        <div style="margin-top:12px" class="controls">
-          <button id="start">Recognize</button>
-          <button id="cancel" disabled>Cancel</button>
-          <button id="downloadTxt" disabled>Download text</button>
-        </div>
-
-        <div style="margin-top:12px">
-          <label class="small">Progress</label>
-          <progress id="progress" value="0" max="1"></progress>
-          <div id="progressText" class="small">Idle</div>
-        </div>
-      </div>
-
-      <div style="flex:1 1 480px;min-width:320px">
-        <label for="result">Recognized text</label>
-        <textarea id="result" placeholder="OCR output will appear here..." readonly></textarea>
-      </div>
+        
+        <textarea id="result" placeholder="Extracted text..."></textarea>
     </div>
-  </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
-  <script>
-    const { createWorker } = Tesseract;
-    const video = document.getElementById('video');
-    const startCamBtn = document.getElementById('startCam');
-    const switchCamBtn = document.getElementById('switchCam');
-    const snapBtn = document.getElementById('snap');
-    const preview = document.getElementById('preview');
-    const fileBtn = document.getElementById('fileBtn');
-    const fileInput = document.getElementById('file');
-    const startBtn = document.getElementById('start');
-    const cancelBtn = document.getElementById('cancel');
-    const progressEl = document.getElementById('progress');
-    const progressText = document.getElementById('progressText');
-    const resultEl = document.getElementById('result');
-    const downloadBtn = document.getElementById('downloadTxt');
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const result = document.getElementById('result');
+        const status = document.getElementById('status');
+        
+        let stream = null;
+        let worker = null;
 
-    let stream = null;
-    let useFacingMode = 'environment'; // try rear camera first on phones
-    let videoTracks = [];
-    let worker = null;
-    let cancelRequested = false;
-
-    async function startCamera() {
-      stopCamera();
-      try {
-        const constraints = { video: { facingMode: useFacingMode }, audio: false };
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = stream;
-        videoTracks = stream.getVideoTracks();
-        startCamBtn.textContent = 'Camera running';
-        switchCamBtn.disabled = false;
-        snapBtn.disabled = false;
-      } catch (err) {
-        alert('Unable to access camera: ' + err.message);
-      }
-    }
-
-    function stopCamera() {
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-        video.srcObject = null;
-        startCamBtn.textContent = 'Start camera';
-        switchCamBtn.disabled = true;
-        snapBtn.disabled = true;
-      }
-    }
-
-    startCamBtn.addEventListener('click', () => {
-      if (!stream) startCamera(); else stopCamera();
-    });
-
-    switchCamBtn.addEventListener('click', async () => {
-      // toggle between environment and user
-      useFacingMode = (useFacingMode === 'environment') ? 'user' : 'environment';
-      await startCamera();
-    });
-
-    snapBtn.addEventListener('click', () => {
-      if (!stream) return alert('Start camera first');
-      // capture a frame to canvas
-      const w = video.videoWidth;
-      const h = video.videoHeight;
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-      preview.src = dataUrl;
-    });
-
-    fileBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', (e) => {
-      const f = e.target.files && e.target.files[0];
-      if (!f) return;
-      const reader = new FileReader();
-      reader.onload = () => preview.src = reader.result;
-      reader.readAsDataURL(f);
-    });
-
-    async function createTesseractWorker(onProgress) {
-      const w = createWorker({ logger: onProgress });
-      await w.load();
-      await w.loadLanguage('eng');
-      await w.initialize('eng');
-      return w;
-    }
-
-    startBtn.addEventListener('click', async () => {
-      if (!preview.src) return alert('Capture a photo with the camera or upload an image first.');
-      startBtn.disabled = true;
-      cancelBtn.disabled = false;
-      downloadBtn.disabled = true;
-      resultEl.value = '';
-      progressEl.value = 0;
-      progressText.textContent = 'Starting worker...';
-      cancelRequested = false;
-
-      try {
-        worker = await createTesseractWorker(m => {
-          if (m && typeof m.progress === 'number') progressEl.value = m.progress;
-          progressText.textContent = (m && m.status) ? `${m.status} ${(m.progress||0)*100|0}%` : JSON.stringify(m);
-        });
-
-        const source = preview.src;
-        const { data: { text } } = await worker.recognize(source);
-
-        if (cancelRequested) {
-          progressText.textContent = 'Canceled';
-        } else {
-          resultEl.value = text;
-          progressText.textContent = 'Done';
-          downloadBtn.disabled = false;
+        // Pre-initialize Tesseract worker for faster processing
+        async function initWorker() {
+            worker = await Tesseract.createWorker({
+                langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast',
+                logger: () => {}
+            });
+            
+            await worker.loadLanguage('eng');
+            await worker.initialize('eng');
+            
+            // Optimize for numbers and English text
+            await worker.setParameters({
+                tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,',
+                tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK
+            });
         }
-      } catch (err) {
-        console.error(err);
-        progressText.textContent = 'Error: ' + (err.message || err);
-        alert('OCR failed. Check console for details.');
-      } finally {
-        try { if (worker) await worker.terminate(); } catch(e){}
-        worker = null;
-        startBtn.disabled = false;
-        cancelBtn.disabled = true;
-      }
-    });
 
-    cancelBtn.addEventListener('click', async () => {
-      cancelRequested = true;
-      progressText.textContent = 'Cancel requested';
-      if (worker) {
-        try { await worker.terminate(); } catch(e){}
-        worker = null;
-      }
-      startBtn.disabled = false;
-      cancelBtn.disabled = true;
-    });
+        function updateStatus(msg, type = 'info') {
+            status.textContent = msg;
+            status.className = `status ${type}`;
+        }
 
-    downloadBtn.addEventListener('click', () => {
-      const text = resultEl.value;
-      if (!text) return;
-      const blob = new Blob([text], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'ocr-result.txt';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    });
+        async function startCamera() {
+            try {
+                updateStatus('Starting camera...', 'info');
+                
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                
+                video.srcObject = stream;
+                startBtn.disabled = true;
+                captureBtn.disabled = false;
+                
+                // Initialize worker in background
+                if (!worker) {
+                    initWorker().then(() => {
+                        updateStatus('Camera ready!', 'success');
+                    });
+                } else {
+                    updateStatus('Camera ready!', 'success');
+                }
+            } catch (err) {
+                updateStatus('Camera access failed', 'error');
+            }
+        }
 
-    // Clean up on page unload
-    window.addEventListener('pagehide', () => stopCamera());
-  </script>
+        async function captureAndOCR() {
+            captureBtn.disabled = true;
+            updateStatus('Processing...', 'processing');
+            
+            // Resize canvas to reduce processing time
+            canvas.width = Math.min(video.videoWidth, 1280);
+            canvas.height = Math.min(video.videoHeight, 720);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            
+            try {
+                if (!worker) await initWorker();
+                
+                const { data: { text } } = await worker.recognize(imageData);
+                
+                const extracted = text.trim();
+                result.value = extracted || 'No text found';
+                updateStatus(extracted ? 'Done!' : 'No text found', 'success');
+            } catch (err) {
+                updateStatus('Processing failed', 'error');
+            }
+            
+            captureBtn.disabled = false;
+        }
+
+        startBtn.addEventListener('click', startCamera);
+        captureBtn.addEventListener('click', captureAndOCR);
+
+        window.addEventListener('beforeunload', () => {
+            if (stream) stream.getTracks().forEach(t => t.stop());
+            if (worker) worker.terminate();
+        });
+    </script>
 </body>
 </html>
